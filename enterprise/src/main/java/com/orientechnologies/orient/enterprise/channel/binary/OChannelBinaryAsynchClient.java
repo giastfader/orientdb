@@ -289,9 +289,8 @@ public class OChannelBinaryAsynchClient extends OChannelBinary {
     return null;
   }
 
-  public void endResponse() {
+  public void endResponse() throws IOException {
     channelRead = false;
-
     // WAKE UP ALL THE WAITING THREADS
     try {
       readCondition.signalAll();
@@ -299,7 +298,6 @@ public class OChannelBinaryAsynchClient extends OChannelBinary {
       // IGNORE IT
       OLogManager.instance().debug(this, "Error on signaling waiting clients after reading response");
     }
-
     try {
       releaseReadLock();
     } catch (IllegalMonitorStateException e) {
@@ -317,7 +315,11 @@ public class OChannelBinaryAsynchClient extends OChannelBinary {
         releaseReadLock();
       }
 
-    super.close();
+    try {
+      super.close();
+    } catch (Exception e) {
+      // IGNORE IT
+    }
 
     if (serviceThread != null) {
       final OAsynchChannelServiceThread s = serviceThread;

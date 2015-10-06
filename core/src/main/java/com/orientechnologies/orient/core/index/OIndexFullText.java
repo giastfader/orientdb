@@ -20,21 +20,21 @@
 package com.orientechnologies.orient.core.index;
 
 import com.orientechnologies.common.listener.OProgressListener;
+import com.orientechnologies.common.serialization.types.OBinarySerializer;
+import com.orientechnologies.common.types.OModifiableBoolean;
 import com.orientechnologies.orient.core.db.ODatabase;
 import com.orientechnologies.orient.core.db.record.OIdentifiable;
-import com.orientechnologies.orient.core.db.record.ORecordElement;
 import com.orientechnologies.orient.core.db.record.ridbag.sbtree.OIndexRIDContainer;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.serialization.serializer.OStringSerializerHelper;
-import com.orientechnologies.orient.core.serialization.serializer.stream.OStreamSerializer;
-import com.orientechnologies.orient.core.type.tree.OMVRBTreeRIDSet;
+import com.orientechnologies.orient.core.storage.impl.local.OAbstractPaginatedStorage;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 /**
  * Fast index for full-text searches.
@@ -62,12 +62,16 @@ public class OIndexFullText extends OIndexMultiValues {
 
   private Set<String>          stopWords;
 
-  public OIndexFullText(String typeId, String algorithm, OIndexEngine<Set<OIdentifiable>> indexEngine,
+  public OIndexFullText(String name, String typeId, String algorithm, int version, OAbstractPaginatedStorage storage,
       String valueContainerAlgorithm, ODocument metadata) {
-    super(typeId, algorithm, indexEngine, valueContainerAlgorithm, metadata);
-    config();
-    configWithMetadata(metadata);
-
+    super(name, typeId, algorithm, version, storage, valueContainerAlgorithm, metadata);
+    acquireExclusiveLock();
+    try {
+      config();
+      configWithMetadata(metadata);
+    } finally {
+      releaseExclusiveLock();
+    }
   }
 
   /**
@@ -75,7 +79,7 @@ public class OIndexFullText extends OIndexMultiValues {
    * the caller.
    */
   @Override
-  public OIndexFullText put(Object key, final OIdentifiable iSingleValue) {
+  public OIndexFullText put(Object key, final OIdentifiable singleValue) {
     checkForRebuild();
 
     if (key == null)
@@ -86,59 +90,57 @@ public class OIndexFullText extends OIndexMultiValues {
     final ODatabase database = getDatabase();
     final boolean txIsActive = database.getTransaction().isActive();
 
-    if (txIsActive)
-      keyLockManager.acquireSharedLock(key);
+    if (!txIsActive)
+      keyLockManager.acquireExclusiveLock(key);
+
     try {
-      modificationLock.requestModificationLock();
+      final Set<String> words = splitIntoWords(key.toString());
 
-      try {
-        final Set<String> words = splitIntoWords(key.toString());
+      // FOREACH WORD CREATE THE LINK TO THE CURRENT DOCUMENT
+      for (final String word : words) {
+        acquireSharedLock();
+        try {
+          final Set<OIdentifiable> refs = (Set<OIdentifiable>) storage.getIndexValue(indexId, word);
 
-        // FOREACH WORD CREATE THE LINK TO THE CURRENT DOCUMENT
-        for (final String word : words) {
-          acquireExclusiveLock();
-          startStorageAtomicOperation();
-          try {
-            Set<OIdentifiable> refs;
+          final boolean durable;
+          if (metadata != null && Boolean.TRUE.equals(metadata.field("durableInNonTxMode")))
+            durable = true;
+          else
+            durable = false;
 
-            // SEARCH FOR THE WORD
-            refs = indexEngine.get(word);
+          // SAVE THE INDEX ENTRY
+          storage.updateIndexEntry(indexId, word, new Callable<Object>() {
+            @Override
+            public Object call() throws Exception {
+              Set<OIdentifiable> result = null;
 
-            if (refs == null) {
-              // WORD NOT EXISTS: CREATE THE KEYWORD CONTAINER THE FIRST TIME THE WORD IS FOUND
-              if (ODefaultIndexFactory.SBTREEBONSAI_VALUE_CONTAINER.equals(valueContainerAlgorithm)) {
-                boolean durable = false;
-                if (metadata != null && Boolean.TRUE.equals(metadata.field("durableInNonTxMode")))
-                  durable = true;
-
-                refs = new OIndexRIDContainer(getName(), durable);
+              if (refs == null) {
+                // WORD NOT EXISTS: CREATE THE KEYWORD CONTAINER THE FIRST TIME THE WORD IS FOUND
+                if (ODefaultIndexFactory.SBTREEBONSAI_VALUE_CONTAINER.equals(valueContainerAlgorithm)) {
+                  result = new OIndexRIDContainer(getName(), durable);
+                } else {
+                  throw new IllegalStateException("MBRBTreeContainer is not supported any more");
+                }
               } else {
-                refs = new OMVRBTreeRIDSet();
-                ((OMVRBTreeRIDSet) refs).setAutoConvertToRecord(false);
+                result = refs;
               }
+
+              // ADD THE CURRENT DOCUMENT AS REF FOR THAT WORD
+              result.add(singleValue);
+
+              return result;
             }
+          });
 
-            // ADD THE CURRENT DOCUMENT AS REF FOR THAT WORD
-            refs.add(iSingleValue);
-
-            // SAVE THE INDEX ENTRY
-            indexEngine.put(word, refs);
-
-            commitStorageAtomicOperation();
-          } catch (RuntimeException e) {
-            rollbackStorageAtomicOperation();
-            throw new OIndexException("Error during put of key - value entry", e);
-          } finally {
-            releaseExclusiveLock();
-          }
+        } finally {
+          releaseSharedLock();
         }
-        return this;
-      } finally {
-        modificationLock.releaseModificationLock();
       }
+      return this;
+
     } finally {
-      if (txIsActive)
-        keyLockManager.releaseSharedLock(key);
+      if (!txIsActive)
+        keyLockManager.releaseExclusiveLock(key);
     }
   }
 
@@ -161,58 +163,41 @@ public class OIndexFullText extends OIndexMultiValues {
     final ODatabase database = getDatabase();
     final boolean txIsActive = database.getTransaction().isActive();
 
-    if (txIsActive)
-      keyLockManager.acquireSharedLock(key);
+    if (!txIsActive)
+      keyLockManager.acquireExclusiveLock(key);
     try {
-      modificationLock.requestModificationLock();
+      final Set<String> words = splitIntoWords(key.toString());
+      final OModifiableBoolean removed = new OModifiableBoolean(false);
 
-      try {
-        final Set<String> words = splitIntoWords(key.toString());
-        boolean removed = false;
+      for (final String word : words) {
+        acquireSharedLock();
+        try {
+          final Set<OIdentifiable> recs = (Set<OIdentifiable>) storage.getIndexValue(indexId, word);
 
-        for (final String word : words) {
-          acquireExclusiveLock();
-          startStorageAtomicOperation();
-          try {
-
-            final Set<OIdentifiable> recs = indexEngine.get(word);
-            if (recs != null && !recs.isEmpty()) {
-              if (recs.remove(value)) {
-                if (recs.isEmpty())
-                  indexEngine.remove(word);
-                else
-                  indexEngine.put(word, recs);
-                removed = true;
-              }
-            }
-            commitStorageAtomicOperation();
-          } catch (RuntimeException e) {
-            rollbackStorageAtomicOperation();
-            throw new OIndexException("Error during removal of entry by key and value", e);
-          } finally {
-            releaseExclusiveLock();
+          if (recs != null && !recs.isEmpty()) {
+            storage.updateIndexEntry(indexId, word, new EntityRemover(recs, value, removed));
           }
+        } finally {
+          releaseSharedLock();
         }
-
-        return removed;
-      } finally {
-        modificationLock.releaseModificationLock();
       }
+
+      return removed.getValue();
     } finally {
-      if (txIsActive)
-        keyLockManager.releaseSharedLock(key);
+      if (!txIsActive)
+        keyLockManager.releaseExclusiveLock(key);
     }
   }
 
   @Override
-  public OIndexInternal<?> create(String name, OIndexDefinition indexDefinition, String clusterIndexName,
-      Set<String> clustersToIndex, boolean rebuild, OProgressListener progressListener, OStreamSerializer valueSerializer) {
+  public OIndexInternal<?> create(OIndexDefinition indexDefinition, String clusterIndexName, Set<String> clustersToIndex,
+      boolean rebuild, OProgressListener progressListener, OBinarySerializer valueSerializer) {
 
     if (indexDefinition.getFields().size() > 1) {
       throw new OIndexException(type + " indexes cannot be used as composite ones.");
     }
 
-    return super.create(name, indexDefinition, clusterIndexName, clustersToIndex, rebuild, progressListener, valueSerializer);
+    return super.create(indexDefinition, clusterIndexName, clustersToIndex, rebuild, progressListener, valueSerializer);
   }
 
   @Override
@@ -225,21 +210,14 @@ public class OIndexFullText extends OIndexMultiValues {
   }
 
   @Override
-  public ODocument updateConfiguration() {
-    super.updateConfiguration();
-    configuration.setInternalStatus(ORecordElement.STATUS.UNMARSHALLING);
+  protected void doConfigurationUpdate(ODocument newConfig) {
+    super.doConfigurationUpdate(newConfig);
 
-    try {
-      configuration.field(CONFIG_SEPARATOR_CHARS, separatorChars);
-      configuration.field(CONFIG_IGNORE_CHARS, ignoreChars);
-      configuration.field(CONFIG_STOP_WORDS, stopWords);
-      configuration.field(CONFIG_MIN_WORD_LEN, minWordLength);
-      configuration.field(CONFIG_INDEX_RADIX, indexRadix);
-
-    } finally {
-      configuration.setInternalStatus(ORecordElement.STATUS.LOADED);
-    }
-    return configuration;
+    newConfig.field(CONFIG_SEPARATOR_CHARS, separatorChars);
+    newConfig.field(CONFIG_IGNORE_CHARS, ignoreChars);
+    newConfig.field(CONFIG_STOP_WORDS, stopWords);
+    newConfig.field(CONFIG_MIN_WORD_LEN, minWordLength);
+    newConfig.field(CONFIG_INDEX_RADIX, indexRadix);
   }
 
   public boolean canBeUsedInEqualityOperators() {
@@ -281,7 +259,8 @@ public class OIndexFullText extends OIndexMultiValues {
   private Set<String> splitIntoWords(final String iKey) {
     final Set<String> result = new HashSet<String>();
 
-    final List<String> words = (List<String>) OStringSerializerHelper.split(new ArrayList<String>(), iKey, 0, -1, separatorChars);
+    final List<String> words = new ArrayList<String>();
+    OStringSerializerHelper.split(words, iKey, 0, -1, separatorChars);
 
     final StringBuilder buffer = new StringBuilder(64);
     // FOREACH WORD CREATE THE LINK TO THE CURRENT DOCUMENT
@@ -323,5 +302,32 @@ public class OIndexFullText extends OIndexMultiValues {
     }
 
     return result;
+  }
+
+  private static class EntityRemover implements Callable<Object> {
+    private final Set<OIdentifiable> recs;
+    private final OIdentifiable      value;
+    private final OModifiableBoolean removed;
+
+    public EntityRemover(Set<OIdentifiable> recs, OIdentifiable value, OModifiableBoolean removed) {
+      this.recs = recs;
+      this.value = value;
+      this.removed = removed;
+    }
+
+    @Override
+    public Object call() throws Exception {
+      if (recs.remove(value)) {
+        removed.setValue(true);
+
+        if (recs.isEmpty())
+          return null;
+        else
+          return recs;
+
+      }
+
+      return recs;
+    }
   }
 }

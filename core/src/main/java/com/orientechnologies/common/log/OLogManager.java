@@ -29,6 +29,8 @@ import com.orientechnologies.orient.core.storage.impl.local.OAbstractPaginatedSt
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
@@ -36,14 +38,16 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class OLogManager {
-  private static final String      DEFAULT_LOG                  = "com.orientechnologies";
-  private static final String      ENV_INSTALL_CUSTOM_FORMATTER = "orientdb.installCustomFormatter";
-  private static final OLogManager instance                     = new OLogManager();
-  private boolean                  debug                        = true;
-  private boolean                  info                         = true;
-  private boolean                  warn                         = true;
-  private boolean                  error                        = true;
-  private Level                    minimumLevel                 = Level.SEVERE;
+  private static final String                 DEFAULT_LOG                  = "com.orientechnologies";
+  private static final String                 ENV_INSTALL_CUSTOM_FORMATTER = "orientdb.installCustomFormatter";
+  private static final OLogManager            instance                     = new OLogManager();
+  private boolean                             debug                        = true;
+  private boolean                             info                         = true;
+  private boolean                             warn                         = true;
+  private boolean                             error                        = true;
+  private Level                               minimumLevel                 = Level.SEVERE;
+
+  private final ConcurrentMap<String, Logger> loggersCache                 = new ConcurrentHashMap<String, Logger>();
 
   protected OLogManager() {
   }
@@ -100,7 +104,25 @@ public class OLogManager {
       } catch (Throwable e) {
       }
 
-      final Logger log = iRequester != null ? Logger.getLogger(iRequester.getClass().getName()) : Logger.getLogger(DEFAULT_LOG);
+      final String requesterName;
+      if (iRequester != null) {
+        requesterName = iRequester.getClass().getName();
+      } else {
+        requesterName = DEFAULT_LOG;
+      }
+
+      Logger log = loggersCache.get(requesterName);
+      if (log == null) {
+        log = Logger.getLogger(requesterName);
+
+        if (log != null) {
+          Logger oldLogger = loggersCache.putIfAbsent(requesterName, log);
+
+          if (oldLogger != null)
+            log = oldLogger;
+        }
+      }
+
       if (log == null) {
         // USE SYSERR
         try {
@@ -131,22 +153,6 @@ public class OLogManager {
   public void debug(final Object iRequester, final String iMessage, final Throwable iException, final Object... iAdditionalArgs) {
     if (isDebugEnabled())
       log(iRequester, Level.FINE, iMessage, iException, iAdditionalArgs);
-  }
-
-  public void debug(final Object iRequester, final String iMessage, final Throwable iException,
-      final Class<? extends OException> iExceptionClass, final Object... iAdditionalArgs) {
-    debug(iRequester, iMessage, iException, iAdditionalArgs);
-
-    if (iExceptionClass != null)
-      try {
-        throw iExceptionClass.getConstructor(String.class, Throwable.class).newInstance(iMessage, iException);
-      } catch (NoSuchMethodException e) {
-      } catch (IllegalArgumentException e) {
-      } catch (SecurityException e) {
-      } catch (InstantiationException e) {
-      } catch (IllegalAccessException e) {
-      } catch (InvocationTargetException e) {
-      }
   }
 
   public void info(final Object iRequester, final String iMessage, final Object... iAdditionalArgs) {
@@ -180,75 +186,6 @@ public class OLogManager {
   public void error(final Object iRequester, final String iMessage, final Throwable iException, final Object... iAdditionalArgs) {
     if (isErrorEnabled())
       log(iRequester, Level.SEVERE, iMessage, iException, iAdditionalArgs);
-  }
-
-  public void error(final Object iRequester, final String iMessage, final Throwable iException,
-      final Class<? extends OException> iExceptionClass, final Object... iAdditionalArgs) {
-    error(iRequester, iMessage, iException, iAdditionalArgs);
-
-    final String msg = String.format(iMessage, iAdditionalArgs);
-
-    if (iExceptionClass != null)
-      try {
-        throw iExceptionClass.getConstructor(String.class, Throwable.class).newInstance(msg, iException);
-      } catch (NoSuchMethodException e) {
-      } catch (IllegalArgumentException e) {
-      } catch (SecurityException e) {
-      } catch (InstantiationException e) {
-      } catch (IllegalAccessException e) {
-      } catch (InvocationTargetException e) {
-      }
-  }
-
-  public void error(final Object iRequester, final String iMessage, final Class<? extends OException> iExceptionClass) {
-    error(iRequester, iMessage, (Throwable) null);
-
-    try {
-      throw iExceptionClass.getConstructor(String.class).newInstance(iMessage);
-    } catch (IllegalArgumentException e) {
-    } catch (SecurityException e) {
-    } catch (InstantiationException e) {
-    } catch (IllegalAccessException e) {
-    } catch (InvocationTargetException e) {
-    } catch (NoSuchMethodException e) {
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  public void exception(final String iMessage, final Exception iNestedException, final Class<? extends OException> iExceptionClass,
-      final Object... iAdditionalArgs) throws OException {
-    if (iMessage == null)
-      return;
-
-    // FORMAT THE MESSAGE
-    String msg = String.format(iMessage, iAdditionalArgs);
-
-    Constructor<OException> c;
-    OException exceptionToThrow = null;
-    try {
-      if (iNestedException != null) {
-        c = (Constructor<OException>) iExceptionClass.getConstructor(String.class, Throwable.class);
-        exceptionToThrow = c.newInstance(msg, iNestedException);
-      }
-    } catch (Exception e) {
-    }
-
-    if (exceptionToThrow == null)
-      try {
-        c = (Constructor<OException>) iExceptionClass.getConstructor(String.class);
-        exceptionToThrow = c.newInstance(msg);
-      } catch (SecurityException e1) {
-      } catch (NoSuchMethodException e1) {
-      } catch (IllegalArgumentException e1) {
-      } catch (InstantiationException e1) {
-      } catch (IllegalAccessException e1) {
-      } catch (InvocationTargetException e1) {
-      }
-
-    if (exceptionToThrow != null)
-      throw exceptionToThrow;
-    else
-      throw new IllegalArgumentException("Cannot create the exception of type: " + iExceptionClass);
   }
 
   public boolean isWarn() {
@@ -321,11 +258,17 @@ public class OLogManager {
     }
 
     Logger log = Logger.getLogger(DEFAULT_LOG);
-    for (Handler h : log.getHandlers()) {
-      if (h.getClass().isAssignableFrom(iHandler)) {
-        h.setLevel(level);
-        break;
+    while (log != null) {
+      log.setLevel(level);
+
+      for (Handler h : log.getHandlers()) {
+        if (h.getClass().isAssignableFrom(iHandler)) {
+          h.setLevel(level);
+          break;
+        }
       }
+
+      log = log.getParent();
     }
 
     return level;

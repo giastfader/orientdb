@@ -19,6 +19,7 @@
  */
 package com.orientechnologies.orient.server.network;
 
+import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.log.OLogManager;
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.config.OContextConfiguration;
@@ -26,13 +27,13 @@ import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.serialization.serializer.OStringSerializerHelper;
 import com.orientechnologies.orient.enterprise.channel.OChannel;
 import com.orientechnologies.orient.enterprise.channel.binary.ONetworkProtocolException;
-import com.orientechnologies.orient.server.OClientConnectionManager;
 import com.orientechnologies.orient.server.OServer;
 import com.orientechnologies.orient.server.ShutdownHelper;
 import com.orientechnologies.orient.server.config.OServerCommandConfiguration;
 import com.orientechnologies.orient.server.config.OServerParameterConfiguration;
 import com.orientechnologies.orient.server.distributed.ODistributedServerManager;
 import com.orientechnologies.orient.server.network.protocol.ONetworkProtocol;
+import com.orientechnologies.orient.server.network.protocol.binary.ONetworkProtocolBinary;
 import com.orientechnologies.orient.server.network.protocol.http.command.OServerCommand;
 
 import java.io.IOException;
@@ -74,10 +75,13 @@ public class OServerNetworkListener extends Thread {
     try {
       protocolVersion = iProtocol.newInstance().getVersion();
     } catch (Exception e) {
-      OLogManager.instance().error(this, "Error on reading protocol version for %s", e, ONetworkProtocolException.class, iProtocol);
+      final String message = "Error on reading protocol version for " + iProtocol;
+      OLogManager.instance().error(this, message, e);
+
+      throw OException.wrapException(new ONetworkProtocolException(message), e);
     }
 
-    listen(iHostName, iHostPortRange, iProtocolName);
+    listen(iHostName, iHostPortRange, iProtocolName, iProtocol);
     protocolType = iProtocol;
 
     readParameters(iServer.getContextConfiguration(), iParameters);
@@ -193,9 +197,12 @@ public class OServerNetworkListener extends Thread {
           if (server.getDistributedManager() != null) {
             final ODistributedServerManager.NODE_STATUS nodeStatus = server.getDistributedManager().getNodeStatus();
             if (nodeStatus != ODistributedServerManager.NODE_STATUS.ONLINE) {
-              OLogManager.instance().warn(this,
-                  "Distributed server is not yet ONLINE (status=%s), reject incoming connection from %s. If you are trying to shutdown the server, please kill the process", nodeStatus,
-                  socket.getRemoteSocketAddress());
+              OLogManager
+                  .instance()
+                  .warn(
+                      this,
+                      "Distributed server is not yet ONLINE (status=%s), reject incoming connection from %s. If you are trying to shutdown the server, please kill the process",
+                      nodeStatus, socket.getRemoteSocketAddress());
               socket.close();
 
               // PAUSE CURRENT THREAD TO SLOW DOWN ANY POSSIBLE ATTACK
@@ -204,15 +211,17 @@ public class OServerNetworkListener extends Thread {
             }
           }
 
-          int conns = OClientConnectionManager.instance().getTotal();
-          if (conns >= OGlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger()) {
-            OClientConnectionManager.instance().cleanExpiredConnections();
-            conns = OClientConnectionManager.instance().getTotal();
-            if (conns >= OGlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger()) {
+          final int max = OGlobalConfiguration.NETWORK_MAX_CONCURRENT_SESSIONS.getValueAsInteger();
+
+          int conns = server.getClientConnectionManager().getTotal();
+          if (conns >= max) {
+            server.getClientConnectionManager().cleanExpiredConnections();
+            conns = server.getClientConnectionManager().getTotal();
+            if (conns >= max) {
               // MAXIMUM OF CONNECTIONS EXCEEDED
               OLogManager.instance().warn(this,
-                  "Reached maximum number of concurrent connections (%d), reject incoming connection from %s", conns,
-                  socket.getRemoteSocketAddress());
+                  "Reached maximum number of concurrent connections (max=%d, current=%d), reject incoming connection from %s", max,
+                  conns, socket.getRemoteSocketAddress());
               socket.close();
 
               // PAUSE CURRENT THREAD TO SLOW DOWN ANY POSSIBLE ATTACK
@@ -297,8 +306,27 @@ public class OServerNetworkListener extends Thread {
    * @param iHostPortRange
    * @param iHostName
    */
-  private void listen(final String iHostName, final String iHostPortRange, final String iProtocolName) {
-    final int[] ports = getPorts(iHostPortRange);
+  private void listen(final String iHostName, final String iHostPortRange, final String iProtocolName,
+      Class<? extends ONetworkProtocol> protocolClass) {
+
+    int[] ports = null;
+    if (protocolClass.equals(ONetworkProtocolBinary.class)) {
+      String serverTestMode = System.getProperty("orient.server.testMode", "false");
+      if (serverTestMode.equals("true")) {
+        String serverTestPort = System.getProperty("orient.server.port");
+        if (serverTestPort != null) {
+          try {
+            int serverPort = Integer.parseInt(serverTestPort);
+            ports = new int[] { serverPort };
+          } catch (NumberFormatException e) {
+            ports = null;
+          }
+        }
+      }
+    }
+
+    if (ports == null)
+      ports = getPorts(iHostPortRange);
 
     for (int port : ports) {
       inboundAddr = new InetSocketAddress(iHostName, port);

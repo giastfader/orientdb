@@ -108,10 +108,6 @@ public class OIndexAbstractDelegate<T> implements OIndex<T> {
     return delegate.delete();
   }
 
-  @Override
-  public void deleteWithoutIndexLoad(String indexName) {
-    delegate.deleteWithoutIndexLoad(indexName);
-  }
 
   public String getName() {
     return delegate.getName();
@@ -119,6 +115,11 @@ public class OIndexAbstractDelegate<T> implements OIndex<T> {
 
   public String getType() {
     return delegate.getType();
+  }
+
+  @Override
+  public String getAlgorithm() {
+    return delegate.getAlgorithm();
   }
 
   public boolean isAutomatic() {
@@ -134,9 +135,6 @@ public class OIndexAbstractDelegate<T> implements OIndex<T> {
     return delegate.getMetadata();
   }
 
-  public ORID getIdentity() {
-    return delegate.getIdentity();
-  }
 
   public long rebuild() {
     return delegate.rebuild();

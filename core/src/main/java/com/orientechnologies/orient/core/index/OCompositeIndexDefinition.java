@@ -19,6 +19,14 @@
  */
 package com.orientechnologies.orient.core.index;
 
+import com.orientechnologies.common.exception.OException;
+import com.orientechnologies.orient.core.collate.OCollate;
+import com.orientechnologies.orient.core.db.record.OMultiValueChangeEvent;
+import com.orientechnologies.orient.core.db.record.ORecordElement;
+import com.orientechnologies.orient.core.metadata.schema.OType;
+import com.orientechnologies.orient.core.record.impl.ODocument;
+import com.orientechnologies.orient.core.sql.OCommandExecutorSQLCreateIndex;
+
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,17 +38,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.orientechnologies.orient.core.collate.OCollate;
-import com.orientechnologies.orient.core.db.record.OMultiValueChangeEvent;
-import com.orientechnologies.orient.core.db.record.ORecordElement;
-import com.orientechnologies.orient.core.metadata.schema.OType;
-import com.orientechnologies.orient.core.record.impl.ODocument;
-
 /**
  * Index that consist of several indexDefinitions like {@link OPropertyIndexDefinition}.
  */
 
 public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
+  private static final long            serialVersionUID          = -885861736290603016L;
   private final List<OIndexDefinition> indexDefinitions;
   private String                       className;
   private int                          multiValueDefinitionIndex = -1;
@@ -57,7 +60,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
    *          - name of class which is owner of this index
    */
   public OCompositeIndexDefinition(final String iClassName, int version) {
-    super(version);
+    super();
 
     indexDefinitions = new ArrayList<OIndexDefinition>(5);
     className = iClassName;
@@ -72,7 +75,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
    *          List of indexDefinitions to add in given index.
    */
   public OCompositeIndexDefinition(final String iClassName, final List<? extends OIndexDefinition> iIndexes, int version) {
-    super(version);
+    super();
 
     indexDefinitions = new ArrayList<OIndexDefinition>(5);
     for (OIndexDefinition indexDefinition : iIndexes) {
@@ -83,7 +86,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
         if (multiValueDefinitionIndex == -1)
           multiValueDefinitionIndex = indexDefinitions.size() - 1;
         else
-          throw new OIndexException("Composite key can not contain more than one collection item");
+          throw new OIndexException("Composite key cannot contain more than one collection item");
     }
 
     className = iClassName;
@@ -108,7 +111,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
       if (multiValueDefinitionIndex == -1)
         multiValueDefinitionIndex = indexDefinitions.size() - 1;
       else
-        throw new OIndexException("Composite key can not contain more than one collection item");
+        throw new OIndexException("Composite key cannot contain more than one collection item");
     }
 
     collate.addCollate(indexDefinition.getCollate());
@@ -261,7 +264,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
           compositeKeys.add(compositeKey);
         }
       else
-        throw new OIndexException("Composite key can not contain more than one collection item");
+        throw new OIndexException("Composite key cannot contain more than one collection item");
 
       int compositeIndex = 0;
       for (final Object keyItem : collectionKey) {
@@ -285,6 +288,9 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
    * {@inheritDoc}
    */
   public Object createValue(final Object... params) {
+    if (params.length == 1 && params[0] instanceof Collection)
+      return params[0];
+
     return createValue(Arrays.asList(params));
   }
 
@@ -390,7 +396,7 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
   /**
    * {@inheritDoc}
    */
-  public String toCreateIndexDDL(final String indexName, final String indexType) {
+  public String toCreateIndexDDL(final String indexName, final String indexType, String engine) {
     final StringBuilder ddl = new StringBuilder("create index ");
     ddl.append(indexName).append(" on ").append(className).append(" ( ");
 
@@ -402,6 +408,9 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
       }
     }
     ddl.append(" ) ").append(indexType).append(' ');
+
+    if (engine != null)
+      ddl.append(OCommandExecutorSQLCreateIndex.KEYWORD_ENGINE + " " + engine).append(' ');
 
     if (multiValueDefinitionIndex == -1) {
       boolean first = true;
@@ -456,15 +465,15 @@ public class OCompositeIndexDefinition extends OAbstractIndexDefinition {
 
       setNullValuesIgnored(!Boolean.FALSE.equals(document.<Boolean> field("nullValuesIgnored")));
     } catch (final ClassNotFoundException e) {
-      throw new OIndexException("Error during composite index deserialization", e);
+      throw OException.wrapException(new OIndexException("Error during composite index deserialization"), e);
     } catch (final NoSuchMethodException e) {
-      throw new OIndexException("Error during composite index deserialization", e);
+      throw OException.wrapException(new OIndexException("Error during composite index deserialization"), e);
     } catch (final InvocationTargetException e) {
-      throw new OIndexException("Error during composite index deserialization", e);
+      throw OException.wrapException(new OIndexException("Error during composite index deserialization"), e);
     } catch (final InstantiationException e) {
-      throw new OIndexException("Error during composite index deserialization", e);
+      throw OException.wrapException(new OIndexException("Error during composite index deserialization"), e);
     } catch (final IllegalAccessException e) {
-      throw new OIndexException("Error during composite index deserialization", e);
+      throw OException.wrapException(new OIndexException("Error during composite index deserialization"), e);
     }
   }
 

@@ -19,8 +19,18 @@
  */
 package com.orientechnologies.orient.core.serialization.serializer.record.string;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import com.orientechnologies.common.collection.OMultiCollectionIterator;
 import com.orientechnologies.common.collection.OMultiValue;
+import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.db.ODatabaseDocumentInternal;
 import com.orientechnologies.orient.core.db.ODatabaseInternal;
@@ -40,17 +50,9 @@ import com.orientechnologies.orient.core.metadata.schema.OType;
 import com.orientechnologies.orient.core.record.ORecord;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.record.impl.ODocumentInternal;
+import com.orientechnologies.orient.core.serialization.OBinaryProtocol;
 import com.orientechnologies.orient.core.serialization.serializer.OStringSerializerHelper;
 import com.orientechnologies.orient.core.type.tree.OMVRBTreeRIDSet;
-
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.Collection;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class ORecordSerializerSchemaAware2CSV extends ORecordSerializerCSVAbstract {
   public static final String                           NAME             = "ORecordDocument2csv";
@@ -255,8 +257,8 @@ public class ORecordSerializerSchemaAware2CSV extends ORecordSerializerCSVAbstra
             record.setFieldType(fieldName, null);
         }
       } catch (Exception e) {
-        throw new OSerializationException("Error on unmarshalling field '" + fieldName + "' in record " + iRecord.getIdentity()
-            + " with value: " + fieldEntry, e);
+        throw OException.wrapException(new OSerializationException("Error on unmarshalling field '" + fieldName + "' in record "
+            + iRecord.getIdentity() + " with value: " + fieldEntry), e);
       }
     }
 
@@ -276,6 +278,16 @@ public class ORecordSerializerSchemaAware2CSV extends ORecordSerializerCSVAbstra
       return null;
 
     return result;
+  }
+
+  public byte[] writeClassOnly(ORecord iSource) {
+    final ODocument record = (ODocument) iSource;
+    StringBuilder iOutput = new StringBuilder();
+    if (ODocumentInternal.getImmutableSchemaClass(record) != null) {
+      iOutput.append(ODocumentInternal.getImmutableSchemaClass(record).getStreamableName());
+      iOutput.append(OStringSerializerHelper.CLASS_SEPARATOR);
+    }
+    return OBinaryProtocol.string2bytes(iOutput.toString());
   }
 
   @Override
@@ -310,9 +322,6 @@ public class ORecordSerializerSchemaAware2CSV extends ORecordSerializerCSVAbstra
     int i = 0;
 
     final String[] fieldNames = iOnlyDelta && record.isTrackingChanges() ? record.getDirtyFields() : record.fieldNames();
-
-    if (iObjHandler == null && ODatabaseRecordThreadLocal.INSTANCE.isDefined())
-      iObjHandler = ODatabaseRecordThreadLocal.INSTANCE.get();
 
     // MARSHALL ALL THE FIELDS OR DELTA IF TRACKING IS ENABLED
     for (String fieldName : fieldNames) {
@@ -503,8 +512,7 @@ public class ORecordSerializerSchemaAware2CSV extends ORecordSerializerCSVAbstra
 
       iOutput.append(fieldName);
       iOutput.append(FIELD_VALUE_SEPARATOR);
-      fieldToStream(record, iOutput, iObjHandler, type, linkedClass, linkedType, fieldName, fieldValue,
-          iMarshalledRecords, true);
+      fieldToStream(record, iOutput, iObjHandler, type, linkedClass, linkedType, fieldName, fieldValue, iMarshalledRecords, true);
 
       i++;
     }

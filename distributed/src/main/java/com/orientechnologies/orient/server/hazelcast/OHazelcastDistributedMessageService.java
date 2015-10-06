@@ -1,25 +1,27 @@
 /*
-  *
-  *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
-  *  *
-  *  *  Licensed under the Apache License, Version 2.0 (the "License");
-  *  *  you may not use this file except in compliance with the License.
-  *  *  You may obtain a copy of the License at
-  *  *
-  *  *       http://www.apache.org/licenses/LICENSE-2.0
-  *  *
-  *  *  Unless required by applicable law or agreed to in writing, software
-  *  *  distributed under the License is distributed on an "AS IS" BASIS,
-  *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  *  *  See the License for the specific language governing permissions and
-  *  *  limitations under the License.
-  *  *
-  *  * For more information: http://www.orientechnologies.com
-  *
-  */
+ *
+ *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *  * For more information: http://www.orientechnologies.com
+ *
+ */
 package com.orientechnologies.orient.server.hazelcast;
 
+import com.hazelcast.collection.impl.queue.QueueService;
 import com.hazelcast.config.QueueConfig;
+import com.hazelcast.core.DistributedObject;
 import com.hazelcast.core.HazelcastException;
 import com.hazelcast.core.HazelcastInstanceNotActiveException;
 import com.hazelcast.core.IAtomicLong;
@@ -30,11 +32,11 @@ import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.server.distributed.ODistributedMessageService;
-import com.orientechnologies.orient.server.distributed.ODistributedRequest;
 import com.orientechnologies.orient.server.distributed.ODistributedResponse;
 import com.orientechnologies.orient.server.distributed.ODistributedResponseManager;
 import com.orientechnologies.orient.server.distributed.ODistributedServerLog;
 import com.orientechnologies.orient.server.distributed.ODistributedServerLog.DIRECTION;
+import com.orientechnologies.orient.server.distributed.task.OAbstractRemoteTask;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -44,6 +46,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
 
 /**
  * Hazelcast implementation of distributed peer. There is one instance per database. Each node creates own instance to talk with
@@ -109,10 +112,19 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
 
             if (message != null) {
               senderNode = message.getSenderNodeName();
-              final long responseTime = dispatchResponseToThread(message);
 
-              if (responseTime > -1)
-                collectMetric(responseTime);
+              final long reqId = message.getRequestId();
+              if (reqId < 0) {
+                // REQUEST
+                final OAbstractRemoteTask task = (OAbstractRemoteTask) message.getPayload();
+                task.execute(manager.getServerInstance(), manager, null);
+              } else {
+                // RESPONSE
+                final long responseTime = dispatchResponseToThread(message);
+
+                if (responseTime > -1)
+                  collectMetric(responseTime);
+              }
             }
 
           } catch (InterruptedException e) {
@@ -148,7 +160,7 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
   /**
    * Composes the request queue name based on node name and database.
    */
-  protected static String getRequestQueueName(final String iNodeName, final String iDatabaseName) {
+  public static String getRequestQueueName(final String iNodeName, final String iDatabaseName) {
     final StringBuilder buffer = new StringBuilder(128);
     buffer.append(NODE_QUEUE_PREFIX);
     buffer.append(iNodeName);
@@ -173,11 +185,6 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
 
   public OHazelcastDistributedDatabase getDatabase(final String iDatabaseName) {
     return databases.get(iDatabaseName);
-  }
-
-  @Override
-  public ODistributedRequest createRequest() {
-    return new OHazelcastDistributedRequest();
   }
 
   public void shutdown() {
@@ -212,8 +219,17 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
   public void handleUnreachableNode(final String nodeName) {
     final Set<String> dbs = getDatabases();
     if (dbs != null)
-      for (String dbName : dbs)
-        getDatabase(dbName).removeNodeInConfiguration(nodeName, false);
+      for (String dbName : dbs) {
+        final Lock lock = manager.getLock("orientdb." + dbName + ".cfg");
+        lock.lock();
+        try {
+
+          getDatabase(dbName).removeNodeInConfiguration(nodeName, false);
+
+        } finally {
+          lock.unlock();
+        }
+      }
 
     // REMOVE THE SERVER'S RESPONSE QUEUE
     // removeQueue(OHazelcastDistributedMessageService.getResponseQueueName(nodeName));
@@ -224,17 +240,12 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
 
   @Override
   public List<String> getManagedQueueNames() {
-    List<String> queueNames = new ArrayList<String>();
-    for (String q : manager.getHazelcastInstance().getConfig().getQueueConfigs().keySet()) {
-      if (q.startsWith(NODE_QUEUE_PREFIX))
-        queueNames.add(q);
+    final List<String> queueNames = new ArrayList<String>();
+    for (DistributedObject d : manager.getHazelcastInstance().getDistributedObjects()) {
+      if (d.getServiceName().equals(QueueService.SERVICE_NAME))
+        queueNames.add(d.getName());
     }
     return queueNames;
-  }
-
-  @Override
-  public long getLastMessageId() {
-    return getMessageIdCounter().get();
   }
 
   public IAtomicLong getMessageIdCounter() {
@@ -301,6 +312,14 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
   public OHazelcastDistributedDatabase registerDatabase(final String iDatabaseName) {
     final OHazelcastDistributedDatabase db = new OHazelcastDistributedDatabase(manager, this, iDatabaseName);
     databases.put(iDatabaseName, db);
+    return db;
+  }
+
+  public OHazelcastDistributedDatabase unregisterDatabase(final String iDatabaseName) {
+    final OHazelcastDistributedDatabase db = databases.remove(iDatabaseName);
+    if (db != null) {
+      db.shutdown();
+    }
     return db;
   }
 
@@ -414,7 +433,7 @@ public class OHazelcastDistributedMessageService implements ODistributedMessageS
   /**
    * Returns the queue. If not exists create and register it.
    */
-  protected <T> IQueue<T> getQueue(final String iQueueName) {
+  public <T> IQueue<T> getQueue(final String iQueueName) {
     // configureQueue(iQueueName, 0, 0);
     return manager.getHazelcastInstance().getQueue(iQueueName);
   }

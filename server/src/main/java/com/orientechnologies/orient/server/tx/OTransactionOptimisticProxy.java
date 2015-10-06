@@ -23,15 +23,13 @@ import java.io.IOException;
 import java.util.*;
 import java.util.Map.Entry;
 
+import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
 import com.orientechnologies.orient.core.db.record.OIdentifiable;
 import com.orientechnologies.orient.core.db.record.ORecordLazyList;
 import com.orientechnologies.orient.core.db.record.ORecordOperation;
 import com.orientechnologies.orient.core.db.record.ridbag.ORidBag;
-import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
-import com.orientechnologies.orient.core.exception.OSerializationException;
-import com.orientechnologies.orient.core.exception.OTransactionAbortedException;
-import com.orientechnologies.orient.core.exception.OTransactionException;
+import com.orientechnologies.orient.core.exception.*;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.index.OCompositeKey;
@@ -45,6 +43,7 @@ import com.orientechnologies.orient.core.tx.OTransactionIndexChanges;
 import com.orientechnologies.orient.core.tx.OTransactionOptimistic;
 import com.orientechnologies.orient.core.tx.OTransactionRealAbstract;
 import com.orientechnologies.orient.core.version.ORecordVersion;
+import com.orientechnologies.orient.core.version.OSimpleVersion;
 import com.orientechnologies.orient.core.version.OVersionFactory;
 import com.orientechnologies.orient.enterprise.channel.binary.OChannelBinary;
 import com.orientechnologies.orient.enterprise.channel.binary.OChannelBinaryProtocol;
@@ -72,6 +71,8 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
   @Override
   public void begin() {
     super.begin();
+    // Needed for keep the exception and insure that all data is read from the socket.
+    OException toThrow = null;
 
     try {
       setUsingLog(channel.readByte() == 1);
@@ -104,7 +105,15 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
           break;
 
         case ORecordOperation.DELETED:
-          ORecordInternal.fill(entry.getRecord(), rid, channel.readVersion(), null, false);
+          // LOAD RECORD TO BE SURE IT HASN'T BEEN DELETED BEFORE + PROVIDE CONTENT FOR ANY HOOK
+          final ORecord rec = rid.getRecord();
+          ORecordVersion deleteVersion = channel.readVersion();
+          if (rec == null)
+            toThrow = new OConcurrentModificationException(rid.getIdentity(), new OSimpleVersion(-1), deleteVersion,
+                ORecordOperation.DELETED);
+
+          ORecordInternal.setVersion(rec, deleteVersion.getCounter());
+          entry.setRecord(rec);
           break;
 
         default:
@@ -114,6 +123,9 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
         // PUT IN TEMPORARY LIST TO GET FETCHED AFTER ALL FOR CACHE
         tempEntries.put(entry.getRecord().getIdentity(), entry);
       }
+
+      if (toThrow != null)
+        throw toThrow;
 
       if (lastTxStatus == -1)
         // ABORT TX
@@ -136,6 +148,8 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
           if (ORecordInternal.getRecordType(loadedRecord) == ODocument.RECORD_TYPE
               && ORecordInternal.getRecordType(loadedRecord) == ORecordInternal.getRecordType(record)) {
             ((ODocument) loadedRecord).merge((ODocument) record, false, false);
+            ((ODocument) loadedRecord).setDirty();
+
             loadedRecord.getRecordVersion().copyFrom(record.getRecordVersion());
             entry.getValue().record = loadedRecord;
 
@@ -157,7 +171,8 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
 
     } catch (IOException e) {
       rollback();
-      throw new OSerializationException("Cannot read transaction record from the network. Transaction aborted", e);
+      throw OException.wrapException(new OSerializationException(
+          "Cannot read transaction record from the network. Transaction aborted"), e);
     }
   }
 
@@ -227,7 +242,7 @@ public class OTransactionOptimisticProxy extends OTransactionOptimistic {
           } else
             key = null;
         } catch (IOException ioe) {
-          throw new OTransactionException("Error during index changes deserialization. ", ioe);
+          throw OException.wrapException(new OTransactionException("Error during index changes deserialization. "), ioe);
         }
 
         for (final ODocument op : operations) {

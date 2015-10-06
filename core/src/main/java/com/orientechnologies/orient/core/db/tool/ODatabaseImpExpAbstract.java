@@ -19,6 +19,7 @@
  */
 package com.orientechnologies.orient.core.db.tool;
 
+import com.orientechnologies.common.io.OIOUtils;
 import com.orientechnologies.orient.core.command.OCommandOutputListener;
 import com.orientechnologies.orient.core.db.ODatabaseDocumentInternal;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocument;
@@ -60,6 +61,15 @@ public abstract class ODatabaseImpExpAbstract {
       final OCommandOutputListener iListener) {
     database = iDatabase;
     fileName = iFileName;
+    
+    // Fix bug where you can't backup files with spaces. Now you can wrap with quotes and the filesystem won't create
+    // directories with quotes in their name.
+    if (fileName != null) {
+    	if ((fileName.startsWith("\"") && fileName.endsWith("\"")) || (fileName.startsWith("'") && fileName.endsWith("'"))) {
+    		fileName = fileName.substring(1, fileName.length() - 1);
+    		iListener.onMessage("Detected quotes surrounding filename; new backup file: " + fileName); 
+    	}
+    }
 
     if (fileName != null && fileName.indexOf('.') == -1)
       fileName += DEFAULT_EXT;
@@ -79,7 +89,7 @@ public abstract class ODatabaseImpExpAbstract {
           parseSetting(o, Collections.EMPTY_LIST);
         } else {
           final String option = o.substring(0, sep);
-          final String value = OStringSerializerHelper.getStringContent(o.substring(sep + 1));
+          final String value = OIOUtils.getStringContent(o.substring(sep + 1));
           final List<String> items = OStringSerializerHelper.smartSplit(value, ' ');
           parseSetting(option, items);
         }

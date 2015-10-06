@@ -19,7 +19,6 @@
  */
 package com.orientechnologies.orient.client.remote;
 
-import com.orientechnologies.common.concur.resource.OSharedResourceAdaptiveExternal;
 import com.orientechnologies.orient.core.Orient;
 import com.orientechnologies.orient.core.command.OCommandOutputListener;
 import com.orientechnologies.orient.core.command.OCommandRequestText;
@@ -27,17 +26,11 @@ import com.orientechnologies.orient.core.config.OStorageConfiguration;
 import com.orientechnologies.orient.core.conflict.ORecordConflictStrategy;
 import com.orientechnologies.orient.core.db.record.OCurrentStorageComponentsFactory;
 import com.orientechnologies.orient.core.db.record.ridbag.sbtree.OSBTreeCollectionManager;
+import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.record.impl.ODocument;
-import com.orientechnologies.orient.core.storage.OCluster;
-import com.orientechnologies.orient.core.storage.OPhysicalPosition;
-import com.orientechnologies.orient.core.storage.ORawBuffer;
-import com.orientechnologies.orient.core.storage.ORecordCallback;
-import com.orientechnologies.orient.core.storage.ORecordMetadata;
-import com.orientechnologies.orient.core.storage.OStorage;
-import com.orientechnologies.orient.core.storage.OStorageOperationResult;
-import com.orientechnologies.orient.core.storage.OStorageProxy;
+import com.orientechnologies.orient.core.storage.*;
 import com.orientechnologies.orient.core.tx.OTransaction;
 import com.orientechnologies.orient.core.version.ORecordVersion;
 import com.orientechnologies.orient.core.version.OVersionFactory;
@@ -48,6 +41,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -93,11 +87,6 @@ public class OStorageRemoteThread implements OStorageProxy {
   @Override
   public boolean isDistributed() {
     return delegate.isDistributed();
-  }
-
-  @Override
-  public Class<? extends OSBTreeCollectionManager> getCollectionManagerClass() {
-    return delegate.getCollectionManagerClass();
   }
 
   public void create(final Map<String, Object> iOptions) {
@@ -146,15 +135,6 @@ public class OStorageRemoteThread implements OStorageProxy {
     }
   }
 
-  public OSharedResourceAdaptiveExternal getLock() {
-    pushSession();
-    try {
-      return delegate.getLock();
-    } finally {
-      popSession();
-    }
-  }
-
   public void setSessionId(final String iServerURL, final int iSessionId, byte[] iToken) {
     serverURL = iServerURL;
     sessionId = iSessionId;
@@ -189,6 +169,20 @@ public class OStorageRemoteThread implements OStorageProxy {
     }
   }
 
+  @Override
+  public OStorageProxy copy() {
+    try {
+      OStorageRemoteThread a = new OStorageRemoteThread(delegate);
+      a.pushSession();
+      delegate.reopenRemoteDatabase();
+      a.popSession();
+      return a;
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return null;
+  }
+
   public void close() {
     pushSession();
     try {
@@ -211,8 +205,33 @@ public class OStorageRemoteThread implements OStorageProxy {
   }
 
   @Override
+  public void incrementalBackup(String backupDirectory) {
+    pushSession();
+    try {
+      delegate.incrementalBackup(backupDirectory);
+    } finally {
+      popSession();
+    }
+  }
+
+  @Override
+  public void restoreFromIncrementalBackup(String filePath) {
+    pushSession();
+    try {
+      delegate.restoreFromIncrementalBackup(filePath);
+    } finally {
+      popSession();
+    }
+  }
+
+  @Override
   public OStorage getUnderlying() {
     return delegate;
+  }
+
+  @Override
+  public boolean isRemote() {
+    return true;
   }
 
   public Set<String> getClusterNames() {
@@ -225,7 +244,17 @@ public class OStorageRemoteThread implements OStorageProxy {
   }
 
   @Override
-  public void backup(OutputStream out, Map<String, Object> options, final Callable<Object> callable,
+  public OSBTreeCollectionManager getSBtreeCollectionManager() {
+    pushSession();
+    try {
+      return delegate.getSBtreeCollectionManager();
+    } finally {
+      popSession();
+    }
+  }
+
+  @Override
+  public List<String> backup(OutputStream out, Map<String, Object> options, final Callable<Object> callable,
       final OCommandOutputListener iListener, int compressionLevel, int bufferSize) throws IOException {
     throw new UnsupportedOperationException("backup");
   }
@@ -247,10 +276,21 @@ public class OStorageRemoteThread implements OStorageProxy {
   }
 
   public OStorageOperationResult<ORawBuffer> readRecord(final ORecordId iRid, final String iFetchPlan, boolean iIgnoreCache,
-      ORecordCallback<ORawBuffer> iCallback, boolean loadTombstones, LOCKING_STRATEGY iLockingStrategy) {
+      ORecordCallback<ORawBuffer> iCallback) {
     pushSession();
     try {
-      return delegate.readRecord(iRid, iFetchPlan, iIgnoreCache, null, loadTombstones, LOCKING_STRATEGY.DEFAULT);
+      return delegate.readRecord(iRid, iFetchPlan, iIgnoreCache, null);
+    } finally {
+      popSession();
+    }
+  }
+
+  @Override
+  public OStorageOperationResult<ORawBuffer> readRecordIfVersionIsNotLatest(ORecordId rid, String fetchPlan, boolean ignoreCache,
+      ORecordVersion recordVersion) throws ORecordNotFoundException {
+    pushSession();
+    try {
+      return delegate.readRecordIfVersionIsNotLatest(rid, fetchPlan, ignoreCache, recordVersion);
     } finally {
       popSession();
     }
@@ -593,7 +633,7 @@ public class OStorageRemoteThread implements OStorageProxy {
   }
 
   public boolean isClosed() {
-    return (sessionId < 0 && token == null) || delegate.isClosed();
+    return (sessionId < 0 ) || delegate.isClosed();
   }
 
   public boolean checkForRecordValidity(final OPhysicalPosition ppos) {
@@ -715,7 +755,6 @@ public class OStorageRemoteThread implements OStorageProxy {
   protected void popSession() {
     serverURL = delegate.getServerURL();
     sessionId = delegate.getSessionId();
-    token = delegate.getSessionToken();
     // delegate.clearSession();
   }
 }

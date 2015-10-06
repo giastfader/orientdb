@@ -5,13 +5,12 @@ import java.util.Map;
 
 import com.orientechnologies.common.concur.lock.OLockException;
 import com.orientechnologies.common.log.OLogManager;
+import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
-import com.orientechnologies.orient.core.exception.OConfigurationException;
 import com.orientechnologies.orient.core.exception.ODatabaseException;
 import com.orientechnologies.orient.core.exception.OSecurityAccessException;
 import com.orientechnologies.orient.core.metadata.security.OSecurityUser;
 import com.orientechnologies.orient.core.record.impl.ODocument;
-import com.orientechnologies.orient.server.OServer;
 import com.orientechnologies.orient.server.OTokenHandler;
 import com.orientechnologies.orient.server.network.protocol.http.OHttpRequest;
 import com.orientechnologies.orient.server.network.protocol.http.OHttpResponse;
@@ -27,7 +26,6 @@ public class OServerCommandPostAuthToken extends OServerCommandAbstract {
   private static final String[]  NAMES           = { "POST|token/*" };
   private static final String    RESPONSE_FORMAT = "indent:-1,attribSameRow";
   private volatile OTokenHandler tokenHandler;
-  private volatile boolean       hasToken        = true;
 
   @Override
   public String[] getNames() {
@@ -35,12 +33,9 @@ public class OServerCommandPostAuthToken extends OServerCommandAbstract {
   }
 
   private void init() {
-    if (hasToken && tokenHandler == null) {
-      tokenHandler = (OTokenHandler) server.getPlugin(OTokenHandler.TOKEN_HANDLER_NAME);
-      if (tokenHandler != null && !tokenHandler.isEnabled()) {
-        tokenHandler = null;
-        hasToken = false;
-      }
+
+    if (tokenHandler == null && OGlobalConfiguration.NETWORK_HTTP_USE_TOKEN.getValueAsBoolean()) {
+      tokenHandler = server.getTokenHandler();
     }
   }
 
@@ -72,7 +67,7 @@ public class OServerCommandPostAuthToken extends OServerCommandAbstract {
         ODatabaseDocumentTx db = null;
         OSecurityUser user = null;
         try {
-          db = (ODatabaseDocumentTx) server.openDatabase("document", iRequest.databaseName, username, password);
+          db = (ODatabaseDocumentTx) server.openDatabase(iRequest.databaseName, username, password);
           user = db.getUser();
 
           if (user != null) {
@@ -113,7 +108,7 @@ public class OServerCommandPostAuthToken extends OServerCommandAbstract {
     ODatabaseDocumentTx db = null;
     String userRid = null;
     try {
-      db = (ODatabaseDocumentTx) server.openDatabase("document", iDatabaseName, username, password);
+      db = (ODatabaseDocumentTx) server.openDatabase(iDatabaseName, username, password);
 
       userRid = (db.getUser() == null ? "<server user>" : db.getUser().getDocument().getIdentity().toString());
     } catch (OSecurityAccessException e) {
@@ -139,7 +134,14 @@ public class OServerCommandPostAuthToken extends OServerCommandAbstract {
     if (iRequest.authentication == null || iRequest.authentication.equalsIgnoreCase("basic")) {
       header = "WWW-Authenticate: Basic realm=\"OrientDB db-" + iDatabaseName + "\"";
     }
-    iResponse.send(OHttpUtils.STATUS_AUTH_CODE, OHttpUtils.STATUS_AUTH_DESCRIPTION, OHttpUtils.CONTENT_TEXT_PLAIN,
-        "401 Unauthorized.", header);
+
+    if (isJsonResponse(iResponse)) {
+      sendJsonError(iResponse, OHttpUtils.STATUS_BADREQ_CODE, OHttpUtils.STATUS_BADREQ_DESCRIPTION, OHttpUtils.CONTENT_TEXT_PLAIN,
+          "401 Unauthorized.", header);
+    } else {
+      iResponse.send(OHttpUtils.STATUS_AUTH_CODE, OHttpUtils.STATUS_AUTH_DESCRIPTION, OHttpUtils.CONTENT_TEXT_PLAIN,
+          "401 Unauthorized.", header);
+    }
+
   }
 }

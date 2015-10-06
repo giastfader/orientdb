@@ -19,10 +19,6 @@
  */
 package com.orientechnologies.orient.core.sql;
 
-import static com.orientechnologies.common.util.OClassLoaderHelper.lookupProviderWithOrientClassLoader;
-
-import java.util.*;
-
 import com.orientechnologies.common.collection.OMultiCollectionIterator;
 import com.orientechnologies.common.collection.OMultiValue;
 import com.orientechnologies.common.exception.OException;
@@ -32,8 +28,11 @@ import com.orientechnologies.common.util.OCollections;
 import com.orientechnologies.orient.core.collate.OCollate;
 import com.orientechnologies.orient.core.collate.OCollateFactory;
 import com.orientechnologies.orient.core.command.OCommandContext;
+import com.orientechnologies.orient.core.command.OCommandExecutor;
+import com.orientechnologies.orient.core.command.OCommandExecutorAbstract;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocument;
 import com.orientechnologies.orient.core.db.record.OIdentifiable;
+import com.orientechnologies.orient.core.exception.ODatabaseException;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.serialization.serializer.OStringSerializerHelper;
 import com.orientechnologies.orient.core.sql.filter.OSQLFilter;
@@ -45,6 +44,10 @@ import com.orientechnologies.orient.core.sql.method.OSQLMethodFactory;
 import com.orientechnologies.orient.core.sql.operator.OQueryOperator;
 import com.orientechnologies.orient.core.sql.operator.OQueryOperatorFactory;
 import com.orientechnologies.orient.core.sql.query.OSQLSynchQuery;
+
+import java.util.*;
+
+import static com.orientechnologies.common.util.OClassLoaderHelper.lookupProviderWithOrientClassLoader;
 
 public class OSQLEngine {
 
@@ -256,7 +259,7 @@ public class OSQLEngine {
     if (iCurrent == null)
       return null;
 
-    if (iContext != null && !iContext.checkTimeout())
+    if (!OCommandExecutorAbstract.checkInterruption(iContext))
       return null;
 
     if (OMultiValue.isMultiValue(iCurrent) || iCurrent instanceof Iterator) {
@@ -366,7 +369,7 @@ public class OSQLEngine {
       }
     } while (added);
     if (!operators.isEmpty()) {
-      throw new OException("Unvalid sorting. " + OCollections.toString(pairs));
+      throw new ODatabaseException("Invalid sorting. " + OCollections.toString(pairs));
     }
     SORTED_OPERATORS = sorted.toArray(new OQueryOperator[sorted.size()]);
     return SORTED_OPERATORS;
@@ -404,7 +407,8 @@ public class OSQLEngine {
     ODynamicSQLElementFactory.FUNCTIONS.remove(iName);
   }
 
-  public OCommandExecutorSQLAbstract getCommand(final String candidate) {
+  public OCommandExecutor getCommand(String candidate) {
+    candidate = candidate.trim();
     final Set<String> names = getCommandNames();
     String commandName = candidate;
     boolean found = names.contains(commandName);

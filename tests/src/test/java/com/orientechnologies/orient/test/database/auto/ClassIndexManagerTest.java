@@ -28,18 +28,31 @@ import java.util.Map;
 import java.util.Set;
 
 @Test(groups = { "index" })
-public class ClassIndexManagerTest  extends DocumentDBBaseTest {
+public class ClassIndexManagerTest extends DocumentDBBaseTest {
 
-	@Parameters(value = "url")
-	public ClassIndexManagerTest(@Optional String url) {
-		super(url);
-	}
+  @Parameters(value = "url")
+  public ClassIndexManagerTest(@Optional String url) {
+    super(url);
+  }
 
-	@BeforeClass
+  @BeforeClass
   public void beforeClass() throws Exception {
-		super.beforeClass();
+    super.beforeClass();
 
     final OSchema schema = database.getMetadata().getSchema();
+
+    if (schema.existsClass("classIndexManagerTestClass"))
+      schema.dropClass("classIndexManagerTestClass");
+
+    if (schema.existsClass("classIndexManagerTestClassTwo"))
+      schema.dropClass("classIndexManagerTestClassTwo");
+
+    if (schema.existsClass("classIndexManagerTestSuperClass"))
+      schema.dropClass("classIndexManagerTestSuperClass");
+
+    if (schema.existsClass("classIndexManagerTestCompositeCollectionClass"))
+      schema.dropClass("classIndexManagerTestCompositeCollectionClass");
+
     final OClass superClass = schema.createClass("classIndexManagerTestSuperClass");
     final OProperty propertyZero = superClass.createProperty("prop0", OType.STRING);
     propertyZero.createIndex(OClass.INDEX_TYPE.UNIQUE);
@@ -78,21 +91,21 @@ public class ClassIndexManagerTest  extends DocumentDBBaseTest {
 
     oClass.createIndex("classIndexManagerTestIndexOnPropertiesFromClassAndSuperclass", OClass.INDEX_TYPE.UNIQUE, "prop0", "prop1");
 
-    schema.save();
+    schema.reload();
 
     database.close();
   }
 
   @AfterMethod
   public void afterMethod() throws Exception {
-		database.command(new OCommandSQL("delete from classIndexManagerTestClass")).execute();
-		database.command(new OCommandSQL("delete from classIndexManagerTestClassTwo")).execute();
-		database.command(new OCommandSQL("delete from classIndexManagerTestSuperClass")).execute();
+    database.command(new OCommandSQL("delete from classIndexManagerTestClass")).execute();
+    database.command(new OCommandSQL("delete from classIndexManagerTestClassTwo")).execute();
+    database.command(new OCommandSQL("delete from classIndexManagerTestSuperClass")).execute();
 
-    Assert.assertEquals(database.getMetadata().getIndexManager().getIndex("classIndexManagerTestClass.prop1").getSize(), 0 );
+    Assert.assertEquals(database.getMetadata().getIndexManager().getIndex("classIndexManagerTestClass.prop1").getSize(), 0);
     Assert.assertEquals(database.getMetadata().getIndexManager().getIndex("classIndexManagerTestClass.prop2").getSize(), 0);
 
-		super.afterMethod();
+    super.afterMethod();
   }
 
   public void testPropertiesCheckUniqueIndexDubKeysCreate() {
@@ -106,9 +119,6 @@ public class ClassIndexManagerTest  extends DocumentDBBaseTest {
     try {
       docTwo.field("prop1", "a");
       docTwo.save();
-    } catch (OResponseProcessingException e) {
-      Assert.assertTrue(e.getCause() instanceof ORecordDuplicatedException);
-      exceptionThrown = true;
     } catch (ORecordDuplicatedException e) {
       exceptionThrown = true;
     }
@@ -150,9 +160,6 @@ public class ClassIndexManagerTest  extends DocumentDBBaseTest {
     try {
       docTwo.field("prop0", "a");
       docTwo.save();
-    } catch (OResponseProcessingException e) {
-      Assert.assertTrue(e.getCause() instanceof ORecordDuplicatedException);
-      exceptionThrown = true;
     } catch (ORecordDuplicatedException e) {
       exceptionThrown = true;
     }
@@ -173,9 +180,6 @@ public class ClassIndexManagerTest  extends DocumentDBBaseTest {
     try {
       docTwo.field("prop1", "a");
       docTwo.save();
-    } catch (OResponseProcessingException e) {
-      Assert.assertTrue(e.getCause() instanceof ORecordDuplicatedException);
-      exceptionThrown = true;
     } catch (ORecordDuplicatedException e) {
       exceptionThrown = true;
     }

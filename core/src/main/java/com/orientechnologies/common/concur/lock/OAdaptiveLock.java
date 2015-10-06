@@ -20,6 +20,8 @@
 package com.orientechnologies.common.concur.lock;
 
 import com.orientechnologies.common.concur.OTimeoutException;
+import com.orientechnologies.common.exception.OException;
+import com.orientechnologies.common.log.OLogManager;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -88,8 +90,8 @@ public class OAdaptiveLock extends OAbstractLock {
             }
           }
 
-          throw new OLockException("Thread interrupted while waiting for resource of class '" + getClass() + "' with timeout="
-              + timeout);
+          throw OException.wrapException(new OLockException("Thread interrupted while waiting for resource of class '" + getClass()
+              + "' with timeout=" + timeout), e);
         }
 
         throwTimeoutException(lock);
@@ -108,8 +110,8 @@ public class OAdaptiveLock extends OAbstractLock {
         try {
           return lock.tryLock(iTimeout, iUnit);
         } catch (InterruptedException e) {
-          throw new OLockException("Thread interrupted while waiting for resource of class '" + getClass() + "' with timeout="
-              + timeout);
+          throw OException.wrapException(new OLockException("Thread interrupted while waiting for resource of class '" + getClass()
+              + "' with timeout=" + timeout), e);
         }
       else
         return lock.tryLock();
@@ -128,6 +130,7 @@ public class OAdaptiveLock extends OAbstractLock {
       if (lock.isLocked())
         lock.unlock();
     } catch (Exception e) {
+      OLogManager.instance().debug(this, "Cannot unlock a lock", e);
     }
   }
 

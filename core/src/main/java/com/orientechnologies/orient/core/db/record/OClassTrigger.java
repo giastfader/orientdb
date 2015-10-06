@@ -35,11 +35,13 @@ import com.orientechnologies.orient.core.db.ODatabase.STATUS;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocument;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
 import com.orientechnologies.orient.core.exception.OConfigurationException;
+import com.orientechnologies.orient.core.exception.ODatabaseException;
 import com.orientechnologies.orient.core.hook.ODocumentHookAbstract;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.id.ORecordId;
 import com.orientechnologies.orient.core.metadata.function.OFunction;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
+import com.orientechnologies.orient.core.metadata.schema.OImmutableClass;
 import com.orientechnologies.orient.core.record.ORecord;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.record.impl.ODocumentInternal;
@@ -182,16 +184,16 @@ public class OClassTrigger extends ODocumentHookAbstract {
       return RESULT.RECORD_NOT_CHANGED;
 
     final ODocument document = (ODocument) iRecord;
-    if (ODocumentInternal.getImmutableSchemaClass(document) != null
-        && ODocumentInternal.getImmutableSchemaClass(document).isSubClassOf(CLASSNAME))
+    OImmutableClass immutableSchemaClass = ODocumentInternal.getImmutableSchemaClass(document);
+    if (immutableSchemaClass != null && immutableSchemaClass.isTriggered())
       return super.onTrigger(iType, iRecord);
 
     return RESULT.RECORD_NOT_CHANGED;
   }
 
   private Object checkClzAttribute(final ODocument iDocument, String attr) {
-    final OClass clz = ODocumentInternal.getImmutableSchemaClass(iDocument);
-    if (clz != null && clz.isSubClassOf(CLASSNAME)) {
+    final OImmutableClass clz = ODocumentInternal.getImmutableSchemaClass(iDocument);
+    if (clz != null && clz.isTriggered()) {
       OFunction func = null;
       String fieldName = clz.getCustom(attr);
       OClass superClz = clz.getSuperClass();
@@ -259,7 +261,7 @@ public class OClassTrigger extends ODocumentHookAbstract {
       try {
         result = (String) method.invoke(clz.newInstance(), iDocument);
       } catch (Exception ex) {
-        throw new OException("Failed to invoke method " + method.getName(), ex);
+        throw OException.wrapException(new ODatabaseException("Failed to invoke method " + method.getName()), ex);
       }
       if (result == null) {
         return RESULT.RECORD_NOT_CHANGED;
@@ -302,9 +304,10 @@ public class OClassTrigger extends ODocumentHookAbstract {
           result = (String) invocableEngine.invokeFunction(func.getName(), EMPTY);
         }
       } catch (ScriptException e) {
-        throw new OCommandScriptException("Error on execution of the script", func.getName(), e.getColumnNumber(), e);
+        throw OException.wrapException(
+            new OCommandScriptException("Error on execution of the script", func.getName(), e.getColumnNumber()), e);
       } catch (NoSuchMethodException e) {
-        throw new OCommandScriptException("Error on execution of the script", func.getName(), 0, e);
+        throw OException.wrapException(new OCommandScriptException("Error on execution of the script", func.getName(), 0), e);
       } catch (OCommandScriptException e) {
         // PASS THROUGH
         throw e;

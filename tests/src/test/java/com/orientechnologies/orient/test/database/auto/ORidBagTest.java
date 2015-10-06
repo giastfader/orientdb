@@ -38,6 +38,9 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     bag.setAutoConvertToRecord(false);
 
     bag.add(new ORecordId("#77:1"));
+    Assert.assertTrue(bag.contains(new ORecordId("#77:1")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#78:2")));
+
     Iterator<OIdentifiable> iterator = bag.iterator();
     Assert.assertTrue(iterator.hasNext());
 
@@ -54,6 +57,10 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
 
     bag.add(new ORecordId("#77:2"));
     bag.add(new ORecordId("#77:2"));
+
+    Assert.assertTrue(bag.contains(new ORecordId("#77:2")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:3")));
+
     assertEquals(bag.size(), 2);
     assertEmbedded(bag.isEmbedded());
   }
@@ -76,6 +83,15 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     bag.remove(new ORecordId("#77:2"));
     bag.remove(new ORecordId("#77:4"));
     bag.remove(new ORecordId("#77:6"));
+
+    Assert.assertTrue(bag.contains(new ORecordId("#77:3")));
+    Assert.assertTrue(bag.contains(new ORecordId("#77:4")));
+    Assert.assertTrue(bag.contains(new ORecordId("#77:5")));
+
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:2")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:6")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:1")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:0")));
 
     assertEmbedded(bag.isEmbedded());
 
@@ -104,6 +120,15 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
 
     bag = doc.field("ridbag");
     assertEmbedded(bag.isEmbedded());
+
+    Assert.assertTrue(bag.contains(new ORecordId("#77:3")));
+    Assert.assertTrue(bag.contains(new ORecordId("#77:4")));
+    Assert.assertTrue(bag.contains(new ORecordId("#77:5")));
+
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:2")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:6")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:1")));
+    Assert.assertTrue(!bag.contains(new ORecordId("#77:0")));
 
     for (OIdentifiable identifiable : bag)
       assertTrue(rids.remove(identifiable));
@@ -136,7 +161,7 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database = new ODatabaseDocumentTx(database.getURL());
+    database = new ODatabaseDocumentTx(database.getURL());
     database.open("admin", "admin");
 
     doc = database.load(rid);
@@ -213,7 +238,8 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database.resetInitialization();
+    database.activateOnCurrentThread();
+    database.resetInitialization();
     database.open("admin", "admin");
 
     doc = database.load(rid);
@@ -336,7 +362,7 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database = new ODatabaseDocumentTx(database.getURL());
+    database = new ODatabaseDocumentTx(database.getURL());
     database.open("admin", "admin");
 
     doc = database.load(rid);
@@ -455,7 +481,7 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database = new ODatabaseDocumentTx(database.getURL());
+    database = new ODatabaseDocumentTx(database.getURL());
     database.open("admin", "admin");
 
     doc = database.load(rid);
@@ -579,7 +605,7 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database = new ODatabaseDocumentTx(database.getURL());
+    database = new ODatabaseDocumentTx(database.getURL());
     database.open("admin", "admin");
 
     doc = database.load(rid);
@@ -767,7 +793,7 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     database.close();
     storage.close(true, false);
 
-		database = new ODatabaseDocumentTx(database.getURL());
+    database = new ODatabaseDocumentTx(database.getURL());
     database.open("admin", "admin");
 
     doc = database.load(id);
@@ -1400,9 +1426,9 @@ public abstract class ORidBagTest extends DocumentDBBaseTest {
     c.addEdge("link", a);
     c.addEdge("link", b);
 
-//    System.out.println("A: " + a.getRecord());
-//    System.out.println("B: " + b.getRecord());
-//    System.out.println("C: " + c.getRecord());
+    // System.out.println("A: " + a.getRecord());
+    // System.out.println("B: " + b.getRecord());
+    // System.out.println("C: " + c.getRecord());
 
     database.commit();
   }

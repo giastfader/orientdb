@@ -17,10 +17,10 @@ package com.orientechnologies.orient.core.storage.impl.local.paginated;
 
 import java.io.IOException;
 
-import com.orientechnologies.common.concur.lock.OModificationLock;
 import com.orientechnologies.common.util.OCommonConst;
 import com.orientechnologies.orient.core.config.OStorageClusterConfiguration;
 import com.orientechnologies.orient.core.conflict.ORecordConflictStrategy;
+import com.orientechnologies.orient.core.exception.ORecordNotFoundException;
 import com.orientechnologies.orient.core.id.ORID;
 import com.orientechnologies.orient.core.storage.OCluster;
 import com.orientechnologies.orient.core.storage.OClusterEntryIterator;
@@ -41,7 +41,6 @@ public class OOfflineCluster implements OCluster {
 
   private final String              name;
   private int                       id;
-  private OModificationLock         externalModificationLock = new OModificationLock();
   private OAbstractPaginatedStorage storageLocal;
 
   public OOfflineCluster(final OAbstractPaginatedStorage iStorage, final int iId, final String iName) {
@@ -80,32 +79,30 @@ public class OOfflineCluster implements OCluster {
   }
 
   @Override
-  public OModificationLock getExternalModificationLock() {
-    return externalModificationLock;
-  }
-
-  @Override
   public Object set(ATTRIBUTES attribute, Object value) throws IOException {
     if (attribute == null)
       throw new IllegalArgumentException("attribute is null");
 
     final String stringValue = value != null ? value.toString() : null;
 
-    externalModificationLock.requestModificationLock();
-    try {
+    switch (attribute) {
+    case STATUS: {
+      if (stringValue == null)
+        throw new IllegalStateException("Value of attribute is null.");
 
-      switch (attribute) {
-      case STATUS: {
-        return storageLocal.setClusterStatus(id, OStorageClusterConfiguration.STATUS.valueOf(stringValue.toUpperCase()));
-      }
-      default:
-        throw new IllegalArgumentException("Runtime change of attribute '" + attribute + " is not supported on Offline cluster "
-            + getName());
-      }
-
-    } finally {
-      externalModificationLock.releaseModificationLock();
+      return storageLocal
+          .setClusterStatus(id, OStorageClusterConfiguration.STATUS.valueOf(stringValue.toUpperCase(storageLocal.getConfiguration()
+              .getLocaleInstance())));
     }
+    default:
+      throw new IllegalArgumentException("Runtime change of attribute '" + attribute + " is not supported on Offline cluster "
+          + getName());
+    }
+  }
+
+  @Override
+  public String encryption() {
+    return null;
   }
 
   @Override
@@ -149,6 +146,12 @@ public class OOfflineCluster implements OCluster {
   }
 
   @Override
+  public ORawBuffer readRecordIfVersionIsNotLatest(long clusterPosition, ORecordVersion recordVersion) throws IOException,
+      ORecordNotFoundException {
+    throw new OOfflineClusterException("Cannot read a record from the offline cluster '" + name + "'");
+  }
+
+  @Override
   public boolean exists() {
     return true;
   }
@@ -174,6 +177,11 @@ public class OOfflineCluster implements OCluster {
   }
 
   @Override
+  public String getFileName() {
+    throw new OOfflineClusterException("Cannot return filename of offline cluster '" + name + "'");
+  }
+
+  @Override
   public int getId() {
     return id;
   }
@@ -181,16 +189,6 @@ public class OOfflineCluster implements OCluster {
   @Override
   public void synch() throws IOException {
 
-  }
-
-  @Override
-  public void setSoftlyClosed(boolean softlyClosed) throws IOException {
-
-  }
-
-  @Override
-  public boolean wasSoftlyClosed() throws IOException {
-    return false;
   }
 
   @Override
@@ -225,6 +223,11 @@ public class OOfflineCluster implements OCluster {
 
   @Override
   public boolean isHashBased() {
+    return false;
+  }
+
+  @Override
+  public boolean isSystemCluster() {
     return false;
   }
 

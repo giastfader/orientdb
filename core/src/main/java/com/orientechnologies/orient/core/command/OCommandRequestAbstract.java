@@ -1,31 +1,34 @@
 /*
-  *
-  *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
-  *  *
-  *  *  Licensed under the Apache License, Version 2.0 (the "License");
-  *  *  you may not use this file except in compliance with the License.
-  *  *  You may obtain a copy of the License at
-  *  *
-  *  *       http://www.apache.org/licenses/LICENSE-2.0
-  *  *
-  *  *  Unless required by applicable law or agreed to in writing, software
-  *  *  distributed under the License is distributed on an "AS IS" BASIS,
-  *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  *  *  See the License for the specific language governing permissions and
-  *  *  limitations under the License.
-  *  *
-  *  * For more information: http://www.orientechnologies.com
-  *
-  */
+ *
+ *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *  * For more information: http://www.orientechnologies.com
+ *
+ */
 package com.orientechnologies.orient.core.command;
 
 import com.orientechnologies.common.listener.OProgressListener;
 import com.orientechnologies.orient.core.command.OCommandContext.TIMEOUT_STRATEGY;
 import com.orientechnologies.orient.core.config.OGlobalConfiguration;
 import com.orientechnologies.orient.core.db.record.OIdentifiable;
-import com.orientechnologies.orient.core.storage.OStorage;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Text based Command Request abstract class.
@@ -35,18 +38,18 @@ import java.util.*;
  */
 @SuppressWarnings("serial")
 public abstract class OCommandRequestAbstract implements OCommandRequestInternal, ODistributedCommand {
-  protected OCommandResultListener    resultListener;
-  protected OProgressListener         progressListener;
-  protected int                       limit           = -1;
-  protected long                      timeoutMs       = OGlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
-  protected TIMEOUT_STRATEGY          timeoutStrategy = TIMEOUT_STRATEGY.EXCEPTION;
-  protected OStorage.LOCKING_STRATEGY lockStrategy    = OStorage.LOCKING_STRATEGY.NONE;
-  protected Map<Object, Object>       parameters;
-  protected String                    fetchPlan       = null;
-  protected boolean                   useCache        = false;
-  protected OCommandContext           context;
+  protected OCommandResultListener resultListener;
+  protected OProgressListener      progressListener;
+  protected int                    limit           = -1;
+  protected long                   timeoutMs       = OGlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
+  protected TIMEOUT_STRATEGY       timeoutStrategy = TIMEOUT_STRATEGY.EXCEPTION;
+  protected Map<Object, Object>    parameters;
+  protected String                 fetchPlan       = null;
+  protected boolean                useCache        = false;
+  protected boolean                cacheableResult = false;
+  protected OCommandContext        context;
 
-  private final Set<String>           nodesToExclude  = new HashSet<String>();
+  private final Set<String>        nodesToExclude  = new HashSet<String>();
 
   protected OCommandRequestAbstract() {
   }
@@ -69,13 +72,17 @@ public abstract class OCommandRequestAbstract implements OCommandRequestInternal
   }
 
   @SuppressWarnings("unchecked")
-  protected Map<Object, Object> convertToParameters(final Object... iArgs) {
+  protected Map<Object, Object> convertToParameters(Object... iArgs) {
     final Map<Object, Object> params;
 
     if (iArgs.length == 1 && iArgs[0] instanceof Map) {
       params = (Map<Object, Object>) iArgs[0];
     } else {
+      if (iArgs.length == 1 && iArgs[0] != null && iArgs[0].getClass().isArray() && iArgs[0] instanceof Object[] )
+        iArgs = (Object[]) iArgs[0];
+
       params = new HashMap<Object, Object>(iArgs.length);
+
       for (int i = 0; i < iArgs.length; ++i) {
         Object par = iArgs[i];
 
@@ -129,6 +136,16 @@ public abstract class OCommandRequestAbstract implements OCommandRequestInternal
   }
 
   @Override
+  public boolean isCacheableResult() {
+    return cacheableResult;
+  }
+
+  @Override
+  public void setCacheableResult(final boolean iValue) {
+    cacheableResult = iValue;
+  }
+
+  @Override
   public OCommandContext getContext() {
     if (context == null)
       context = new OBasicCommandContext();
@@ -151,14 +168,6 @@ public abstract class OCommandRequestAbstract implements OCommandRequestInternal
 
   public TIMEOUT_STRATEGY getTimeoutStrategy() {
     return timeoutStrategy;
-  }
-
-  public OStorage.LOCKING_STRATEGY getLockingStrategy() {
-    return lockStrategy;
-  }
-
-  public void setLockStrategy(final OStorage.LOCKING_STRATEGY lockStrategy) {
-    this.lockStrategy = lockStrategy;
   }
 
   @Override

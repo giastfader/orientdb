@@ -1,10 +1,11 @@
 package com.orientechnologies.orient.core.metadata;
 
+import static org.testng.Assert.assertEquals;
+
 import java.util.List;
 
-import com.orientechnologies.orient.core.index.hashindex.local.cache.ODiskCache;
-import com.orientechnologies.orient.core.sql.query.OSQLSynchQuery;
 import com.orientechnologies.orient.core.storage.OStorage;
+import com.orientechnologies.orient.core.storage.cache.OWriteCache;
 import com.orientechnologies.orient.core.storage.impl.local.OAbstractPaginatedStorage;
 import com.orientechnologies.orient.core.storage.impl.local.paginated.OPaginatedCluster;
 
@@ -16,7 +17,9 @@ import org.testng.annotations.Test;
 import com.orientechnologies.orient.core.db.document.ODatabaseDocumentTx;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
 import com.orientechnologies.orient.core.metadata.schema.OImmutableSchema;
+import com.orientechnologies.orient.core.metadata.schema.OProperty;
 import com.orientechnologies.orient.core.metadata.schema.OSchema;
+import com.orientechnologies.orient.core.metadata.schema.OType;
 import com.orientechnologies.orient.core.record.impl.ODocument;
 import com.orientechnologies.orient.core.sql.OCommandSQL;
 
@@ -54,9 +57,8 @@ public class ClassTest {
 
     if (storage instanceof OAbstractPaginatedStorage) {
       final OAbstractPaginatedStorage paginatedStorage = (OAbstractPaginatedStorage) storage;
-      final ODiskCache diskCache = paginatedStorage.getDiskCache();
-
-      Assert.assertTrue(diskCache.exists(SHORTNAME_CLASS_NAME.toLowerCase() + OPaginatedCluster.DEF_EXTENSION));
+      final OWriteCache writeCache = paginatedStorage.getWriteCache();
+      Assert.assertTrue(writeCache.exists(SHORTNAME_CLASS_NAME.toLowerCase() + OPaginatedCluster.DEF_EXTENSION));
     }
 
     String shortName = "shortname";
@@ -107,19 +109,18 @@ public class ClassTest {
 
     final OStorage storage = db.getStorage();
     final OAbstractPaginatedStorage paginatedStorage = (OAbstractPaginatedStorage) storage;
-    final ODiskCache diskCache = paginatedStorage.getDiskCache();
-
-    Assert.assertTrue(diskCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
+    final OWriteCache writeCache = paginatedStorage.getWriteCache();
+    Assert.assertTrue(writeCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
 
     oClass.setName("ClassNameNew");
 
-    Assert.assertTrue(!diskCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
-    Assert.assertTrue(diskCache.exists("classnamenew" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(!writeCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classnamenew" + OPaginatedCluster.DEF_EXTENSION));
 
     oClass.setName("ClassName");
 
-    Assert.assertTrue(!diskCache.exists("classnamenew" + OPaginatedCluster.DEF_EXTENSION));
-    Assert.assertTrue(diskCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(!writeCache.exists("classnamenew" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classname" + OPaginatedCluster.DEF_EXTENSION));
   }
 
   @Test
@@ -147,18 +148,39 @@ public class ClassTest {
 
     final OStorage storage = db.getStorage();
     final OAbstractPaginatedStorage paginatedStorage = (OAbstractPaginatedStorage) storage;
-    final ODiskCache diskCache = paginatedStorage.getDiskCache();
+    final OWriteCache writeCache = paginatedStorage.getWriteCache();
 
-    Assert.assertTrue(diskCache.exists("classone" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classone" + OPaginatedCluster.DEF_EXTENSION));
 
     Assert.assertEquals(db.countClass("ClassTwo"), 2);
     Assert.assertEquals(db.countClass("ClassThree"), 1);
 
     classOne.setName("ClassOne");
-    Assert.assertTrue(diskCache.exists("classone" + OPaginatedCluster.DEF_EXTENSION));
+    Assert.assertTrue(writeCache.exists("classone" + OPaginatedCluster.DEF_EXTENSION));
 
     Assert.assertEquals(db.countClass("ClassTwo"), 2);
     Assert.assertEquals(db.countClass("ClassOne"), 1);
+  }
+  
+  @Test
+  public void testOClassAndOPropertyDescription() {
+    final OSchema oSchema = db.getMetadata().getSchema();
+    OClass oClass = oSchema.createClass("DescriptionTest");
+    OProperty oProperty = oClass.createProperty("property", OType.STRING);
+    oClass.setDescription("DescriptionTest-class-description");
+    oProperty.setDescription("DescriptionTest-property-description");
+    assertEquals(oClass.getDescription(), "DescriptionTest-class-description");
+    assertEquals(oProperty.getDescription(), "DescriptionTest-property-description");
+    oSchema.reload();
+    oClass = oSchema.getClass("DescriptionTest");
+    oProperty = oClass.getProperty("property");
+    assertEquals(oClass.getDescription(), "DescriptionTest-class-description");
+    assertEquals(oProperty.getDescription(), "DescriptionTest-property-description");
+    
+    oClass = db.getMetadata().getImmutableSchemaSnapshot().getClass("DescriptionTest");
+    oProperty = oClass.getProperty("property");
+    assertEquals(oClass.getDescription(), "DescriptionTest-class-description");
+    assertEquals(oProperty.getDescription(), "DescriptionTest-property-description");
   }
 
   private String queryShortName() {

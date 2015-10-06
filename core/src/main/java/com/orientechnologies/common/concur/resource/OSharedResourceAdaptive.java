@@ -1,35 +1,33 @@
 /*
-  *
-  *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
-  *  *
-  *  *  Licensed under the Apache License, Version 2.0 (the "License");
-  *  *  you may not use this file except in compliance with the License.
-  *  *  You may obtain a copy of the License at
-  *  *
-  *  *       http://www.apache.org/licenses/LICENSE-2.0
-  *  *
-  *  *  Unless required by applicable law or agreed to in writing, software
-  *  *  distributed under the License is distributed on an "AS IS" BASIS,
-  *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  *  *  See the License for the specific language governing permissions and
-  *  *  limitations under the License.
-  *  *
-  *  * For more information: http://www.orientechnologies.com
-  *
-  */
+ *
+ *  *  Copyright 2014 Orient Technologies LTD (info(at)orientechnologies.com)
+ *  *
+ *  *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  *  you may not use this file except in compliance with the License.
+ *  *  You may obtain a copy of the License at
+ *  *
+ *  *       http://www.apache.org/licenses/LICENSE-2.0
+ *  *
+ *  *  Unless required by applicable law or agreed to in writing, software
+ *  *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  *  See the License for the specific language governing permissions and
+ *  *  limitations under the License.
+ *  *
+ *  * For more information: http://www.orientechnologies.com
+ *
+ */
 package com.orientechnologies.common.concur.resource;
 
 import com.orientechnologies.common.concur.OTimeoutException;
 import com.orientechnologies.common.concur.lock.OLockException;
+import com.orientechnologies.common.exception.OException;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
@@ -43,12 +41,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * 
  */
 public class OSharedResourceAdaptive {
-  private final ReentrantReadWriteLock lock          = new ReentrantReadWriteLock();
-  private final AtomicInteger          users         = new AtomicInteger(0);
+  private final ReentrantReadWriteLock lock  = new ReentrantReadWriteLock();
+  private final AtomicInteger          users = new AtomicInteger(0);
   private final boolean                concurrent;
   private final int                    timeout;
   private final boolean                ignoreThreadInterruption;
-  private int                          scaledUpCount = 0;
 
   protected OSharedResourceAdaptive() {
     this.concurrent = true;
@@ -125,8 +122,10 @@ public class OSharedResourceAdaptive {
             }
           }
 
-          throw new OLockException("Thread interrupted while waiting for resource of class '" + getClass() + "' with timeout="
-              + timeout);
+          final OLockException exception = new OLockException("Thread interrupted while waiting for resource of class '"
+              + getClass() + "' with timeout=" + timeout);
+          throw OException.wrapException(exception, e);
+
         }
         throwTimeoutException(lock.writeLock());
       } else {
@@ -158,8 +157,10 @@ public class OSharedResourceAdaptive {
               Thread.currentThread().interrupt();
             }
           }
-          throw new OLockException("Thread interrupted while waiting for resource of class '" + getClass() + "' with timeout="
-              + timeout);
+
+          final OLockException exception = new OLockException("Thread interrupted while waiting for resource of class '"
+              + getClass() + "' with timeout=" + timeout);
+          throw OException.wrapException(exception, e);
         }
 
         throwTimeoutException(lock.readLock());

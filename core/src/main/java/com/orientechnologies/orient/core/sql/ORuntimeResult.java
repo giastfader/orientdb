@@ -65,7 +65,7 @@ public class ORuntimeResult {
   }
 
   public static ODocument createProjectionDocument(final int iProgressive) {
-    final ODocument doc = new ODocument().setOrdered(true);
+    final ODocument doc = new ODocument().setOrdered(true).setTrackingChanges(false);
     // ASSIGN A TEMPORARY RID TO ALLOW PAGINATION IF ANY
     ((ORecordId) doc.getIdentity()).clusterId = -2;
     ((ORecordId) doc.getIdentity()).clusterPosition = iProgressive;
@@ -87,8 +87,10 @@ public class ORuntimeResult {
         final String prjName = projection.getKey();
         final Object v = projection.getValue();
 
-        if (v == null)
+        if (v == null && prjName != null) {
+          iValue.field(prjName, (Object) null);
           continue;
+        }
 
         final Object projectionValue;
         if (v.equals("*")) {

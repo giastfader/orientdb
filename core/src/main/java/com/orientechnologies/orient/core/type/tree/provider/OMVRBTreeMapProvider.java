@@ -19,8 +19,9 @@
  */
 package com.orientechnologies.orient.core.type.tree.provider;
 
+import com.orientechnologies.common.exception.OException;
 import com.orientechnologies.common.log.OLogManager;
-import com.orientechnologies.common.profiler.OProfilerMBean;
+import com.orientechnologies.common.profiler.OProfiler;
 import com.orientechnologies.common.serialization.types.OBinarySerializer;
 import com.orientechnologies.common.serialization.types.OLongSerializer;
 import com.orientechnologies.orient.core.Orient;
@@ -101,7 +102,7 @@ public class OMVRBTreeMapProvider<K, V> extends OMVRBTreeProviderAbstract<K, V> 
   }
 
   public byte[] toStream() throws OSerializationException {
-    final OProfilerMBean profiler = Orient.instance().getProfiler();
+    final OProfiler profiler = Orient.instance().getProfiler();
     final long timer = profiler.startChrono();
 
     try {
@@ -132,7 +133,7 @@ public class OMVRBTreeMapProvider<K, V> extends OMVRBTreeProviderAbstract<K, V> 
 
   @SuppressWarnings("unchecked")
   public OSerializableStream fromStream(final byte[] iStream) throws OSerializationException {
-    final OProfilerMBean profiler = Orient.instance().getProfiler();
+    final OProfiler profiler = Orient.instance().getProfiler();
     final long timer = profiler.startChrono();
 
     try {
@@ -183,8 +184,10 @@ public class OMVRBTreeMapProvider<K, V> extends OMVRBTreeProviderAbstract<K, V> 
           streamKeySerializer = OStreamSerializerFactory.get(oldKeySerializerName);
       }
     } catch (Exception e) {
-      OLogManager.instance().error(this, "Error on unmarshalling OMVRBTreeMapProvider object from record: %s", e,
-          OSerializationException.class, root);
+      final String message = "Error on unmarshalling OMVRBTreeMapProvider object from record: " + root;
+      OLogManager.instance().error(this, message, e);
+
+      throw OException.wrapException(new OSerializationException(message), e);
     } finally {
       profiler.stopChrono(profiler.getProcessMetric("mvrbtree.fromStream"), "Deserialize a MVRBTree", timer);
     }
@@ -202,8 +205,8 @@ public class OMVRBTreeMapProvider<K, V> extends OMVRBTreeProviderAbstract<K, V> 
     if (streamKeySerializer instanceof OStreamSerializerLong)
       return (OBinarySerializer<K>) OLongSerializer.INSTANCE;
 
-    throw new OSerializationException("Given serializer " + streamKeySerializer.getClass().getName()
-        + " can not be converted into " + OBinarySerializer.class.getName() + ".");
+    throw new OSerializationException("Given serializer " + streamKeySerializer.getClass().getName() + " cannot be converted into "
+        + OBinarySerializer.class.getName() + ".");
   }
 
   public OBinarySerializer<K> getKeySerializer() {
